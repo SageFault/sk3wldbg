@@ -120,6 +120,7 @@ struct sk3wldbg : public debugger_t {
    void step(uint64_t initial_pc);
    bool open();
    void clear_memory() {memory.clear();}
+   void map_mem_fix_overlaps(uint64_t *startAddr, uint64_t *endAddr, unsigned int perms);
    void map_mem_zero(uint64_t startAddr, uint64_t endAddr, unsigned int perms);
    void map_mem_copy(uint64_t startAddr, uint64_t endAddr, unsigned int perms, void *src);
    void getRandomBytes(void *buf, unsigned int len);

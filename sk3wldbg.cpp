@@ -1418,14 +1418,53 @@ void sk3wldbg::map_mem_copy(uint64_t startAddr, uint64_t endAddr, unsigned int p
 //   msg("map_mem_copy(0x%llx, 0x%llx, 0x%x) COMPLETE\n", startAddr, endAddr, perms);
 }
 
+void sk3wldbg::map_mem_fix_overlaps(uint64_t *startAddr, uint64_t *endAddr, unsigned int perms) {
+	uc_mem_region *regions;
+	uint32_t count;
+	uc_err err = uc_mem_regions(uc, &regions, &count);
+	if (err != UC_ERR_OK) {
+		msg("Failed retrieving regions in map_mem_fix_overlaps() with error returned %u: %s\n", err, uc_strerror(err));
+	}
+
+	for(uint32_t i=0; i<count; i++) {
+		// check for start collision
+		if (regions[i].begin <= *startAddr && *startAddr < regions[i].end) {
+			*startAddr = regions[i].end+1;
+			if (perms != regions[i].perms) {
+				// need to hit the whole region, or else uc_mem_protect fails
+				// we could slice off the last page and only modify it, but
+				// that doesn't completely fix the issue.
+				err = uc_mem_protect(uc, regions[i].begin, regions[i].end-regions[i].begin+1, perms|regions[i].perms);
+				if (err != UC_ERR_OK) {
+					msg("Failed fixing start permission in map_mem_fix_overlaps() with error returned %u: %s\n", err, uc_strerror(err));
+				}
+			}
+		}
+		// check for end collisions
+		if (regions[i].begin <= *endAddr && *endAddr < regions[i].end) {
+			*endAddr = regions[i].begin;
+			if (perms != regions[i].perms) {
+				// need to hit the whole region, as above
+				err = uc_mem_protect(uc, regions[i].begin, regions[i].end-regions[i].begin+1, perms|regions[i].perms);
+				if (err != UC_ERR_OK) {
+					msg("Failed fixing end permission map_mem_fix_overlaps() with error returned %u: %s\n", err, uc_strerror(err));
+				}
+			}
+		}
+	}
+}
+
 void sk3wldbg::map_mem_zero(uint64_t startAddr, uint64_t endAddr, unsigned int perms) {
-   uint64_t exact = endAddr - startAddr;
-   uint64_t rounded = (exact + 0xfff) & ~0xfff;
    uint64_t pageStart = startAddr & ~0xfff;
-   msg("map_mem_zero(0x%llx, 0x%llx, 0x%x)\n", startAddr, endAddr, perms);
-   uc_err err = uc_mem_map(uc, startAddr, (size_t)rounded, perms);
+   uint64_t exact = endAddr - pageStart;
+   uint64_t rounded = (exact + 0xfff) & ~0xfff;
+   msg("map_mem_zero(0x%llx, 0x%llx, 0x%x) -> (0x%llx, 0x%llx, 0x%x)\n", startAddr, endAddr, perms, pageStart, rounded, perms);
+   if (pageStart != startAddr || rounded != endAddr) {
+	   map_mem_fix_overlaps(&pageStart, &rounded, perms);
+   }
+   uc_err err = uc_mem_map(uc, pageStart, (size_t)rounded, perms);
    if (err != UC_ERR_OK) {
-      msg("Failed on uc_mem_map() with error returned %u: %s\n", err, uc_strerror(err));
+	   msg("Failed on uc_mem_map() with error returned %u: %s\n", err, uc_strerror(err));
    }
 //   msg("map_mem_zero(0x%llx, 0x%llx, 0x%x) COMPLETE\n", startAddr, endAddr, perms);
 }
